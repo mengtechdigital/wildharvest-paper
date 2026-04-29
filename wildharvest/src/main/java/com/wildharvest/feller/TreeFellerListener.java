@@ -104,6 +104,12 @@ public final class TreeFellerListener implements Listener {
         }
 
         // Chain-break the rest of the tree with same-family log matching.
+        // 26-way (diagonal) connectivity is required for the weird-shaped
+        // trees: acacia angled trunks, cherry bent trunks, jungle 2x2 with
+        // horizontal branches, dark oak 2x2, mangrove. 6-way only works for
+        // perfectly vertical oak/spruce/birch and would silently miss every
+        // diagonal segment. Same-family matching still prevents bleeding
+        // into a neighbouring tree of a different wood.
         chainBreaker.breakChain(
                 player,
                 block,
@@ -112,7 +118,7 @@ public final class TreeFellerListener implements Listener {
                     return LogCatalog.isLog(m) && LogCatalog.sameFamily(m, seedType);
                 },
                 config.treeFellerMaxLogs(),
-                false
+                true
         );
 
         if (config.treeFellerDecayLeaves() && !LogCatalog.isNetherStem(type)) {
