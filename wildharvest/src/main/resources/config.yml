@@ -1,0 +1,50 @@
+# WildHarvest configuration
+
+# Maximum number of blocks broken per chain. Tree felling and vein mining
+# both share this cap as a safety limit.
+max-chain-size: 256
+
+# If true, holding sneak (shift) DISABLES the chain break (single-block break).
+# If false, holding sneak ENABLES the chain break (single break by default).
+sneak-disables-chain: true
+
+# Per-block hunger exhaustion applied to the player. Vanilla mining is 0.005f.
+# Multiplied by the number of blocks broken in the chain.
+hunger-exhaustion-per-block: 0.005
+
+# Minimum food level required to trigger a chain. Vanilla blocks sprinting
+# below 6 and regen below 18 — set to 1 to only block on a fully empty bar.
+# Set to 0 to disable the gate entirely.
+min-food-level: 1
+
+# Per-player cooldown between chains, in milliseconds. Short throttle to
+# stop click-spam abuse without affecting normal play. 0 disables it.
+chain-cooldown-ms: 100
+
+# If true, stop the chain when the tool would break (one durability point left).
+# If false, allow the tool to break mid-chain (last block drops are still given).
+preserve-tool: true
+
+treefeller:
+  enabled: true
+  # Require an axe to trigger TreeFeller.
+  require-axe: true
+  # If true, schedule the trunk's leaves to decay quickly after felling
+  # (popping one-by-one with vanilla particles/sounds, drops on ground).
+  decay-leaves: true
+  # Search radius around the trunk for leaves to decay.
+  leaf-decay-radius: 6
+  # Ticks between each leaf pop. 1 = instant cascade, 2 = ~10/sec, etc.
+  leaf-decay-ticks-per-leaf: 1
+  # Maximum logs broken per tree (capped further by max-chain-size).
+  max-logs: 128
+  # If true, only fell when leaves of the same wood family are connected to
+  # the trunk. This blocks "wooden pillar" abuse in player-built houses.
+  require-leaves: true
+
+veinminer:
+  enabled: true
+  # Require the correct pickaxe tier (e.g. iron+ for diamond) to trigger.
+  require-correct-tool: true
+  # Maximum ores broken per vein (capped further by max-chain-size).
+  max-ores: 64

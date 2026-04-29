@@ -1,0 +1,30 @@
+name: WildHarvest
+version: ${project.version}
+main: com.wildharvest.WildHarvestPlugin
+api-version: '1.21'
+description: TreeFeller + VeinMiner with smart natural-only detection. Drops go straight to inventory.
+author: Meng Tech LLC
+softdepend: [CoreProtect]
+
+commands:
+  wildharvest:
+    description: Toggle TreeFeller / VeinMiner per player, or reload config.
+    usage: /wildharvest <treefeller|veinminer|both|on|off|reload|status>
+    aliases: [wh]
+
+permissions:
+  wildharvest.use:
+    description: Allows using WildHarvest chain-breaking.
+    default: true
+  wildharvest.treefeller:
+    description: Allows TreeFeller chain breaks.
+    default: true
+  wildharvest.veinminer:
+    description: Allows VeinMiner chain breaks.
+    default: true
+  wildharvest.reload:
+    description: Allows reloading WildHarvest config.
+    default: op
+  wildharvest.bypass-protection:
+    description: Bypass placed-block protection (admin/debug).
+    default: op
