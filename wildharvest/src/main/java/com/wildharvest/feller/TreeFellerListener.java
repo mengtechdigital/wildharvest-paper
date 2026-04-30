@@ -7,7 +7,6 @@ import com.wildharvest.toggle.PlayerToggleStore;
 import com.wildharvest.tracker.PlacedBlockTracker;
 import org.bukkit.GameMode;
 import org.bukkit.Material;
-import org.bukkit.Tag;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -153,6 +152,7 @@ public final class TreeFellerListener implements Listener {
         Material targetLeaf = LogCatalog.leafOf(start.getType());
         if (targetLeaf == null) return false;
 
+        var world = start.getWorld();
         Set<Long> visited = new HashSet<>();
         Deque<Block> queue = new ArrayDeque<>();
         queue.add(start);
@@ -168,9 +168,16 @@ public final class TreeFellerListener implements Listener {
                 for (int dy = -1; dy <= 1; dy++)
                     for (int dz = -1; dz <= 1; dz++) {
                         if (dx == 0 && dy == 0 && dz == 0) continue;
+                        // Skip neighbours in unloaded chunks rather than
+                        // force-loading them on the main thread — a tree at
+                        // the edge of view distance could pull in adjacent
+                        // chunks synchronously otherwise.
+                        int nx = b.getX() + dx;
+                        int nz = b.getZ() + dz;
+                        if (!world.isChunkLoaded(nx >> 4, nz >> 4)) continue;
                         Block n = b.getRelative(dx, dy, dz);
                         Material t = n.getType();
-                        if (Tag.LEAVES.isTagged(t) && t == targetLeaf) return true;
+                        if (t == targetLeaf) return true;
                         if (LogCatalog.isLog(t) && LogCatalog.sameFamily(t, start.getType())) {
                             if (visited.add(packKey(n))) queue.add(n);
                         }

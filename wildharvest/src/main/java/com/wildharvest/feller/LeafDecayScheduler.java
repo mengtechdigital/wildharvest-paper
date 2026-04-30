@@ -122,11 +122,20 @@ public final class LeafDecayScheduler {
         }.runTaskTimer(plugin, period, period);
     }
 
-    /** Cube scan for any same-family log within {@link #SUPPORT_RADIUS}. */
+    /**
+     * Cube scan for any same-family log within {@link #SUPPORT_RADIUS}.
+     * Skips positions in unloaded chunks rather than force-loading them —
+     * a leaf at a chunk border could otherwise pull in 4+ neighbouring
+     * chunks synchronously on the main thread, every tick.
+     */
     private boolean hasNearbySameFamilyLog(Block leaf, Material logType) {
+        var world = leaf.getWorld();
         for (int dy = -SUPPORT_RADIUS; dy <= SUPPORT_RADIUS; dy++)
             for (int dx = -SUPPORT_RADIUS; dx <= SUPPORT_RADIUS; dx++)
                 for (int dz = -SUPPORT_RADIUS; dz <= SUPPORT_RADIUS; dz++) {
+                    int bx = leaf.getX() + dx;
+                    int bz = leaf.getZ() + dz;
+                    if (!world.isChunkLoaded(bx >> 4, bz >> 4)) continue;
                     Material t = leaf.getRelative(dx, dy, dz).getType();
                     if (LogCatalog.isLog(t) && LogCatalog.sameFamily(t, logType)) return true;
                 }
@@ -134,6 +143,7 @@ public final class LeafDecayScheduler {
     }
 
     private List<Block> collectCanopy(Block start, Material logType, Material targetLeaf, int radius) {
+        var world = start.getWorld();
         List<Block> found = new ArrayList<>();
         Set<Long> visited = new HashSet<>();
         Deque<Block> queue = new ArrayDeque<>();
@@ -158,6 +168,13 @@ public final class LeafDecayScheduler {
                 for (int oy = -1; oy <= 1; oy++)
                     for (int oz = -1; oz <= 1; oz++) {
                         if (ox == 0 && oy == 0 && oz == 0) continue;
+                        // Skip neighbours in unloaded chunks rather than
+                        // force-loading them on the main thread — a tree at
+                        // the edge of view distance could pull in adjacent
+                        // chunks synchronously otherwise.
+                        int nx = b.getX() + ox;
+                        int nz = b.getZ() + oz;
+                        if (!world.isChunkLoaded(nx >> 4, nz >> 4)) continue;
                         Block n = b.getRelative(ox, oy, oz);
                         if (!visited.add(packKey(n))) continue;
                         Material t = n.getType();
