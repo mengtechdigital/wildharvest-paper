@@ -37,15 +37,15 @@ public final class WildHarvestConfig {
         this.sneakDisablesChain = c.getBoolean("sneak-disables-chain", true);
         this.hungerExhaustionPerBlock = (float) c.getDouble("hunger-exhaustion-per-block", 0.005);
         this.minFoodLevel = c.getInt("min-food-level", 1);
-        this.chainCooldownMs = c.getLong("chain-cooldown-ms", 100);
+        this.chainCooldownMs = c.getLong("chain-cooldown-ms", 0);
         this.preserveTool = c.getBoolean("preserve-tool", true);
 
         this.treeFellerEnabled = c.getBoolean("treefeller.enabled", true);
         this.treeFellerRequireAxe = c.getBoolean("treefeller.require-axe", true);
         this.treeFellerDecayLeaves = c.getBoolean("treefeller.decay-leaves", true);
-        this.treeFellerLeafDecayRadius = c.getInt("treefeller.leaf-decay-radius", 6);
+        this.treeFellerLeafDecayRadius = c.getInt("treefeller.leaf-decay-radius", 8);
         this.treeFellerLeafDecayTicks = c.getLong("treefeller.leaf-decay-ticks-per-leaf", 1);
-        this.treeFellerMaxLogs = c.getInt("treefeller.max-logs", 128);
+        this.treeFellerMaxLogs = c.getInt("treefeller.max-logs", 256);
         this.treeFellerRequireLeaves = c.getBoolean("treefeller.require-leaves", true);
 
         this.veinMinerEnabled = c.getBoolean("veinminer.enabled", true);

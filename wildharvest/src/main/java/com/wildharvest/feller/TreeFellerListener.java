@@ -17,8 +17,10 @@ import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.inventory.ItemStack;
 
 import java.util.ArrayDeque;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -103,6 +105,14 @@ public final class TreeFellerListener implements Listener {
             event.setDropItems(false);
         }
 
+        // Collect canopy leaves NOW, while the trunk is still intact — the
+        // BFS uses logs as connective tissue to reach the canopy and would
+        // find nothing once the chain break has turned them all to AIR.
+        boolean wantsDecay = config.treeFellerDecayLeaves() && !LogCatalog.isNetherStem(type);
+        List<Block> canopyLeaves = wantsDecay
+                ? leafDecay.collectCanopyLeaves(block, type, config.treeFellerLeafDecayRadius())
+                : Collections.emptyList();
+
         // Chain-break the rest of the tree with same-family log matching.
         // 26-way (diagonal) connectivity is required for the weird-shaped
         // trees: acacia angled trunks, cherry bent trunks, jungle 2x2 with
@@ -121,12 +131,11 @@ public final class TreeFellerListener implements Listener {
                 true
         );
 
-        if (config.treeFellerDecayLeaves() && !LogCatalog.isNetherStem(type)) {
+        if (wantsDecay && !canopyLeaves.isEmpty()) {
             leafDecay.scheduleDecay(
                     player,
-                    block,
                     type,
-                    config.treeFellerLeafDecayRadius(),
+                    canopyLeaves,
                     config.treeFellerLeafDecayTicks()
             );
         }
@@ -149,7 +158,10 @@ public final class TreeFellerListener implements Listener {
         queue.add(start);
         visited.add(packKey(start));
 
-        int budget = 96; // small, but enough to walk up most trunks and find a leaf
+        // Big enough to walk up the tallest vanilla trees (jungle giants,
+        // spruce megas) and around their branches before finding a leaf.
+        // 96 was too small — failed on anything larger than a small oak.
+        int budget = 512;
         while (!queue.isEmpty() && budget-- > 0) {
             Block b = queue.poll();
             for (int dx = -1; dx <= 1; dx++)
