@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented here.
 
+## [1.0.1] — 2026-04-30
+
+### Fixed
+- **Leaf decay now works from any seed log, not just bushy oaks.** The canopy BFS previously ran *after* `chainBreaker.breakChain` had already removed every log, so it could only find leaves that were directly adjacent to the seed log's 26-neighbor cube. Felling the bottom of any normal trunk left the canopy floating. Split into `collectCanopyLeaves` (called *before* the chain break, while logs are still intact to bridge through) and `scheduleDecay` (called after, given the pre-collected list). Decay now walks bottom-of-trunk → top → canopy correctly regardless of where the player breaks the tree.
+- **Tree feller chain-break now uses 26-way connectivity.** Acacia angled trunks, cherry bent trunks, jungle/dark oak 2x2 megas, and mangrove root-trunks all rely on diagonal log adjacency. Same-family matching still prevents bleeding into a neighboring tree of a different wood type.
+- **Per-leaf "support log within 6 blocks" check.** When an anti-grief plugin vetoes part of the trunk mid-chain, the BFS would still strip leaves off the surviving logs. Each candidate leaf now scans for a same-family log within `leaf-decay-radius` and skips decay if one survives — mirrors vanilla's leaf-support radius behavior.
+- **Tree feller BFS loops no longer force-load adjacent chunks on the main thread.** `hasConnectedLeaves`, `collectCanopy`, and `hasNearbySameFamilyLog` all called `Block.getRelative().getType()` without checking whether the neighbor's chunk was loaded — a tree at the edge of view distance, or the per-tick leaf-support scan (up to 2197 reads per leaf), could synchronously stall the server every iteration. Neighbors in unloaded chunks are now skipped.
+
+### Changed
+- `treefeller.max-logs` default `128` → `256` (jungle giants exceeded 128 logs and stopped mid-tree).
+- `treefeller.leaf-decay-radius` default `6` → `8` (covers big oak, cherry, mangrove, dark oak canopies).
+- `treefeller.chain-cooldown-ms` default `100` → `0` (no throttle between chains).
+- `hasConnectedLeaves` BFS budget `96` → `512` (jungle/spruce mega trees were tripping the cap).
+- `collectCanopy` vertical extent `radius*2` → `radius*5` and hard budget `4096` → `16384` (covers 30+-tall trees).
+
+### Notes
+- Existing `config.yml` files won't auto-update — the new defaults only apply if you delete the file or copy the new values from the bundled `config.yml`.
+
 ## [1.0.0] — 2026-04-29
 
 Initial release. TreeFeller + VeinMiner in one plugin, with placed-block detection so chains never eat player-built structures.
