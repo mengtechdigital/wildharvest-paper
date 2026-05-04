@@ -149,14 +149,14 @@ public final class TreeFellerListener implements Listener {
 
     /** Cheap BFS up to a small radius looking for any leaf block of the same family. */
     private boolean hasConnectedLeaves(Block start) {
-        Material targetLeaf = LogCatalog.leafOf(start.getType());
-        if (targetLeaf == null) return false;
+        Set<Material> targetLeaves = LogCatalog.leavesOf(start.getType());
+        if (targetLeaves.isEmpty()) return false;
 
         var world = start.getWorld();
         Set<Long> visited = new HashSet<>();
         Deque<Block> queue = new ArrayDeque<>();
         queue.add(start);
-        visited.add(packKey(start));
+        visited.add(LogCatalog.packKey(start));
 
         // Big enough to walk up the tallest vanilla trees (jungle giants,
         // spruce megas) and around their branches before finding a leaf.
@@ -177,19 +177,16 @@ public final class TreeFellerListener implements Listener {
                         if (!world.isChunkLoaded(nx >> 4, nz >> 4)) continue;
                         Block n = b.getRelative(dx, dy, dz);
                         Material t = n.getType();
-                        if (t == targetLeaf) return true;
+                        // Oak's targetLeaves includes azalea/flowering-azalea
+                        // leaves so an azalea tree (oak trunk + azalea canopy)
+                        // is recognised as a tree.
+                        if (targetLeaves.contains(t)) return true;
                         if (LogCatalog.isLog(t) && LogCatalog.sameFamily(t, start.getType())) {
-                            if (visited.add(packKey(n))) queue.add(n);
+                            if (visited.add(LogCatalog.packKey(n))) queue.add(n);
                         }
                     }
         }
         return false;
     }
 
-    private static long packKey(Block b) {
-        long x = ((long) b.getX()) & 0x3FFFFFFL;
-        long z = ((long) b.getZ()) & 0x3FFFFFFL;
-        long y = ((long) (b.getY() + 2048)) & 0xFFFL;
-        return x | (z << 26) | (y << 52);
-    }
 }

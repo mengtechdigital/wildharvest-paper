@@ -55,9 +55,9 @@ public final class LeafDecayScheduler {
      * to AIR the BFS can't bridge from the seed up to the leaves.
      */
     public List<Block> collectCanopyLeaves(Block trunkOrigin, Material logType, int radius) {
-        Material targetLeaf = LogCatalog.leafOf(logType);
-        if (targetLeaf == null) return Collections.emptyList();
-        return collectCanopy(trunkOrigin, logType, targetLeaf, radius);
+        Set<Material> targetLeaves = LogCatalog.leavesOf(logType);
+        if (targetLeaves.isEmpty()) return Collections.emptyList();
+        return collectCanopy(trunkOrigin, logType, targetLeaves, radius);
     }
 
     /**
@@ -80,8 +80,8 @@ public final class LeafDecayScheduler {
      */
     public void scheduleDecay(Player feller, Material logType, List<Block> leaves, long ticksPerLeaf) {
         if (leaves == null || leaves.isEmpty()) return;
-        Material targetLeaf = LogCatalog.leafOf(logType);
-        if (targetLeaf == null) return;
+        Set<Material> targetLeaves = LogCatalog.leavesOf(logType);
+        if (targetLeaves.isEmpty()) return;
 
         // Defensive copy + random order so the canopy crumbles organically
         // rather than in BFS rings, and so the caller can reuse their list.
@@ -98,7 +98,7 @@ public final class LeafDecayScheduler {
                 // force a chunk load (or throw on stricter Paper modes) and
                 // we'd rather just let those leaves decay vanilla-style later.
                 if (!leaf.getWorld().isChunkLoaded(leaf.getX() >> 4, leaf.getZ() >> 4)) return;
-                if (leaf.getType() != targetLeaf) return; // already decayed by other means
+                if (!targetLeaves.contains(leaf.getType())) return; // already decayed by other means
                 if (tracker.isPlaced(leaf)) return;       // safety: re-check placed
                 if (isPersistent(leaf)) return;           // shears-set leaves stay
                 // Anti-grief plugins can veto part of the chain (e.g. a claim
@@ -127,6 +127,12 @@ public final class LeafDecayScheduler {
      * Skips positions in unloaded chunks rather than force-loading them —
      * a leaf at a chunk border could otherwise pull in 4+ neighbouring
      * chunks synchronously on the main thread, every tick.
+     *
+     * Approximation note: vanilla's leaf-decay distance is the 6-axis path
+     * distance through the leaf graph, not Chebyshev. Cube ≥ path always, so
+     * this check is *more* permissive than vanilla — a leaf with Chebyshev≤6
+     * but path>6 will be spared by us and then decayed by vanilla a few
+     * seconds later. Outcome matches vanilla; only the timing differs.
      */
     private boolean hasNearbySameFamilyLog(Block leaf, Material logType) {
         var world = leaf.getWorld();
@@ -142,13 +148,20 @@ public final class LeafDecayScheduler {
         return false;
     }
 
-    private List<Block> collectCanopy(Block start, Material logType, Material targetLeaf, int radius) {
+    private List<Block> collectCanopy(Block start, Material logType, Set<Material> targetLeaves, int radius) {
         var world = start.getWorld();
         List<Block> found = new ArrayList<>();
         Set<Long> visited = new HashSet<>();
         Deque<Block> queue = new ArrayDeque<>();
         queue.add(start);
-        visited.add(packKey(start));
+        visited.add(LogCatalog.packKey(start));
+
+        // BFS walks through both same-family logs and any valid family leaf
+        // (oak's set includes azalea/flowering-azalea so the full azalea ball
+        // is reached). Bleed across two trees whose canopies touch is bounded
+        // at *pop time* by hasNearbySameFamilyLog: a leaf that still has a
+        // surviving same-family log within vanilla's 6-block support radius
+        // won't be popped — matching vanilla's own leaf-decay rule.
 
         // Vertical extent has to be much larger than horizontal: jungle giants
         // and spruce megas are ~30 blocks tall but only ~10 wide, and we BFS
@@ -176,9 +189,9 @@ public final class LeafDecayScheduler {
                         int nz = b.getZ() + oz;
                         if (!world.isChunkLoaded(nx >> 4, nz >> 4)) continue;
                         Block n = b.getRelative(ox, oy, oz);
-                        if (!visited.add(packKey(n))) continue;
+                        if (!visited.add(LogCatalog.packKey(n))) continue;
                         Material t = n.getType();
-                        if (t == targetLeaf) {
+                        if (targetLeaves.contains(t)) {
                             if (!tracker.isPlaced(n) && !isPersistent(n)) found.add(n);
                             queue.add(n); // walk through leaves to reach more leaves
                         } else if (LogCatalog.isLog(t) && LogCatalog.sameFamily(t, logType)) {
@@ -194,10 +207,4 @@ public final class LeafDecayScheduler {
         return data instanceof Leaves l && l.isPersistent();
     }
 
-    private static long packKey(Block b) {
-        long x = ((long) b.getX()) & 0x3FFFFFFL;
-        long z = ((long) b.getZ()) & 0x3FFFFFFL;
-        long y = ((long) (b.getY() + 2048)) & 0xFFFL;
-        return x | (z << 26) | (y << 52);
-    }
 }
