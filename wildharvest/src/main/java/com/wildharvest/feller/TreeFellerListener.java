@@ -147,7 +147,14 @@ public final class TreeFellerListener implements Listener {
         };
     }
 
-    /** Cheap BFS up to a small radius looking for any leaf block of the same family. */
+    /**
+     * Cheap BFS up to a small radius looking for any leaf block of the same
+     * family. Bounded by both a node budget and a Chebyshev distance cap so a
+     * player-built same-family log structure (e.g. a 100-block stripped-oak
+     * pillar) can't spend the full budget before the BFS gives up.
+     */
+    private static final int DETECTION_RADIUS = 32;
+
     private boolean hasConnectedLeaves(Block start) {
         Set<Material> targetLeaves = LogCatalog.leavesOf(start.getType());
         if (targetLeaves.isEmpty()) return false;
@@ -158,10 +165,16 @@ public final class TreeFellerListener implements Listener {
         queue.add(start);
         visited.add(LogCatalog.packKey(start));
 
+        int sx = start.getX(), sy = start.getY(), sz = start.getZ();
+
         // Big enough to walk up the tallest vanilla trees (jungle giants,
         // spruce megas) and around their branches before finding a leaf.
         // 96 was too small — failed on anything larger than a small oak.
-        int budget = 512;
+        // Bumped from 512 → 4096 so 26-way exploration of dense 2x2 trunks
+        // (mega spruce, jungle giant, dark oak) plus any branching can't run
+        // out before reaching the canopy. BFS exits early on first leaf
+        // hit, so this only matters for the worst case.
+        int budget = 4096;
         while (!queue.isEmpty() && budget-- > 0) {
             Block b = queue.poll();
             for (int dx = -1; dx <= 1; dx++)
@@ -173,8 +186,18 @@ public final class TreeFellerListener implements Listener {
                         // the edge of view distance could pull in adjacent
                         // chunks synchronously otherwise.
                         int nx = b.getX() + dx;
+                        int ny = b.getY() + dy;
                         int nz = b.getZ() + dz;
                         if (!world.isChunkLoaded(nx >> 4, nz >> 4)) continue;
+                        // Chebyshev clamp: the BFS must never wander beyond
+                        // DETECTION_RADIUS from the seed. Vanilla trees top
+                        // out around 30 blocks tall (mega spruce, jungle
+                        // giant) so 32 covers any vanilla shape without
+                        // letting a man-made log structure drag the BFS
+                        // arbitrarily far.
+                        if (Math.abs(nx - sx) > DETECTION_RADIUS
+                                || Math.abs(ny - sy) > DETECTION_RADIUS
+                                || Math.abs(nz - sz) > DETECTION_RADIUS) continue;
                         Block n = b.getRelative(dx, dy, dz);
                         Material t = n.getType();
                         // Oak's targetLeaves includes azalea/flowering-azalea
