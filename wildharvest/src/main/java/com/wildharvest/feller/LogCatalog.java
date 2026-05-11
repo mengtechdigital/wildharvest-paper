@@ -103,9 +103,13 @@ public final class LogCatalog {
      * (< 2^25 = 33,554,432), so the biased value always lies in [0, 2^26).
      */
     public static long packKey(Block b) {
-        long x = ((long) (b.getX() + (1 << 25))) & 0x3FFFFFFL;
-        long z = ((long) (b.getZ() + (1 << 25))) & 0x3FFFFFFL;
-        long y = ((long) (b.getY() + 2048)) & 0xFFFL;
-        return x | (z << 26) | (y << 52);
+        return packKey(b.getX(), b.getY(), b.getZ());
+    }
+
+    public static long packKey(int x, int y, int z) {
+        long px = ((long) (x + (1 << 25))) & 0x3FFFFFFL;
+        long pz = ((long) (z + (1 << 25))) & 0x3FFFFFFL;
+        long py = ((long) (y + 2048)) & 0xFFFL;
+        return px | (pz << 26) | (py << 52);
     }
 }

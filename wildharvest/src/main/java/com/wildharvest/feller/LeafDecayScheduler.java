@@ -25,13 +25,14 @@ import java.util.Set;
  * doesn't hang in the air. The flow is two-phase:
  *
  *   1. {@link #collectCanopyLeaves} — call this BEFORE the chain break runs,
- *      while every log in the trunk is still intact. The BFS walks 26-way
- *      through same-family logs to reach the canopy and collects the leaves.
- *      Doing this AFTER the chain break would fail on anything bigger than a
- *      bushy oak: the trunk would already be AIR and the BFS couldn't bridge
- *      from the seed block up to the canopy.
- *   2. {@link #scheduleDecay} — call this AFTER the chain break with the list
- *      from step 1. Pops leaves one-by-one from a single repeating task.
+ *      while every log in the trunk is still intact. A two-phase BFS first
+ *      discovers all logs belonging to the tree, then flood-fills through the
+ *      canopy collecting only leaves within vanilla's support distance of a
+ *      log. This prevents missed leaves on wide canopies (jungle giant, mega
+ *      spruce, dark oak) and avoids grabbing leaves from adjacent same-family
+ *      trees.
+ *   2. {@link #scheduleDecay} — call this AFTER the chain break with the
+ *      result from step 1. Pops leaves one-by-one from a single repeating task.
  *
  * Leaves use Block.breakNaturally() so vanilla drop tables apply (rare
  * saplings, apples, sticks). They drop on the ground rather than into the
@@ -50,13 +51,27 @@ public final class LeafDecayScheduler {
     }
 
     /**
+     * Result of canopy collection: the leaves to decay and the set of log
+     * positions that belong to the tree (used for fast anti-grief checks).
+     */
+    public static final class CanopyResult {
+        public final List<Block> leaves;
+        public final Set<Long> logKeys;
+
+        public CanopyResult(List<Block> leaves, Set<Long> logKeys) {
+            this.leaves = leaves;
+            this.logKeys = logKeys;
+        }
+    }
+
+    /**
      * Walk the still-intact trunk to find every same-family leaf in the
      * canopy. MUST be called before logs are broken — once the trunk turns
      * to AIR the BFS can't bridge from the seed up to the leaves.
      */
-    public List<Block> collectCanopyLeaves(Block trunkOrigin, Material logType, int radius) {
+    public CanopyResult collectCanopyLeaves(Block trunkOrigin, Material logType, int radius) {
         Set<Material> targetLeaves = LogCatalog.leavesOf(logType);
-        if (targetLeaves.isEmpty()) return Collections.emptyList();
+        if (targetLeaves.isEmpty()) return new CanopyResult(Collections.emptyList(), Collections.emptySet());
         return collectCanopy(trunkOrigin, logType, targetLeaves, radius);
     }
 
@@ -67,6 +82,8 @@ public final class LeafDecayScheduler {
      * vetoes part of the trunk) and should NOT be force-decayed.
      */
     private static final int SUPPORT_RADIUS = 6;
+    /** Leaves farther than this from any tree log are not collected. */
+    private static final int MAX_LEAF_DIST_FROM_LOG = 7;
 
     /**
      * @param feller        the player whose felling triggered this decay; used
@@ -74,11 +91,12 @@ public final class LeafDecayScheduler {
      * @param logType       the felled trunk's material — used to find the
      *                      matching leaf and to recognise still-standing logs
      *                      that should keep their canopy alive.
-     * @param leaves        leaves to pop, pre-collected via
-     *                      {@link #collectCanopyLeaves}.
+     * @param result        canopy result from {@link #collectCanopyLeaves}.
      * @param ticksPerLeaf  delay between consecutive leaf pops.
      */
-    public void scheduleDecay(Player feller, Material logType, List<Block> leaves, long ticksPerLeaf) {
+    public void scheduleDecay(Player feller, Material logType, CanopyResult result, long ticksPerLeaf) {
+        List<Block> leaves = result.leaves;
+        Set<Long> logKeys = result.logKeys;
         if (leaves == null || leaves.isEmpty()) return;
         Set<Material> targetLeaves = LogCatalog.leavesOf(logType);
         if (targetLeaves.isEmpty()) return;
@@ -106,7 +124,7 @@ public final class LeafDecayScheduler {
                 // would normally keep this leaf alive, so don't force-decay
                 // it — vanilla won't either. Without this, a partial fell
                 // strips canopy leaves off logs that are still standing.
-                if (hasNearbySameFamilyLog(leaf, logType)) return;
+                if (hasNearbySameFamilyLog(leaf, logType, logKeys)) return;
 
                 // Vanilla decay sound + particles before breaking.
                 leaf.getWorld().spawnParticle(Particle.BLOCK, leaf.getLocation().add(0.5, 0.5, 0.5),
@@ -119,87 +137,123 @@ public final class LeafDecayScheduler {
                 coreProtect.logBreak(feller, leaf.getLocation(), leaf.getType());
                 leaf.breakNaturally();
             }
-        }.runTaskTimer(plugin, period, period);
+        }.runTaskTimer(plugin, 0L, period);
     }
 
     /**
-     * Cube scan for any same-family log within {@link #SUPPORT_RADIUS}.
-     * Skips positions in unloaded chunks rather than force-loading them —
-     * a leaf at a chunk border could otherwise pull in 4+ neighbouring
-     * chunks synchronously on the main thread, every tick.
-     *
-     * Approximation note: vanilla's leaf-decay distance is the 6-axis path
-     * distance through the leaf graph, not Chebyshev. Cube ≥ path always, so
-     * this check is *more* permissive than vanilla — a leaf with Chebyshev≤6
-     * but path>6 will be spared by us and then decayed by vanilla a few
-     * seconds later. Outcome matches vanilla; only the timing differs.
+     * Instead of scanning a 13³ cube in the world for every leaf, we only
+     * check positions that belonged to the original tree. If a collected log
+     * is within support radius and still exists, the leaf is protected.
+     * This reduces lookups from ~2,200 per leaf to a handful.
      */
-    private boolean hasNearbySameFamilyLog(Block leaf, Material logType) {
-        var world = leaf.getWorld();
-        for (int dy = -SUPPORT_RADIUS; dy <= SUPPORT_RADIUS; dy++)
-            for (int dx = -SUPPORT_RADIUS; dx <= SUPPORT_RADIUS; dx++)
+    private boolean hasNearbySameFamilyLog(Block leaf, Material logType, Set<Long> logKeys) {
+        int lx = leaf.getX(), ly = leaf.getY(), lz = leaf.getZ();
+        for (int dy = -SUPPORT_RADIUS; dy <= SUPPORT_RADIUS; dy++) {
+            for (int dx = -SUPPORT_RADIUS; dx <= SUPPORT_RADIUS; dx++) {
                 for (int dz = -SUPPORT_RADIUS; dz <= SUPPORT_RADIUS; dz++) {
-                    int bx = leaf.getX() + dx;
-                    int bz = leaf.getZ() + dz;
-                    if (!world.isChunkLoaded(bx >> 4, bz >> 4)) continue;
-                    Material t = leaf.getRelative(dx, dy, dz).getType();
-                    if (LogCatalog.isLog(t) && LogCatalog.sameFamily(t, logType)) return true;
+                    long key = LogCatalog.packKey(lx + dx, ly + dy, lz + dz);
+                    if (logKeys.contains(key)) {
+                        Block candidate = leaf.getRelative(dx, dy, dz);
+                        Material t = candidate.getType();
+                        if (LogCatalog.isLog(t) && LogCatalog.sameFamily(t, logType)) {
+                            return true;
+                        }
+                    }
                 }
+            }
+        }
         return false;
     }
 
-    private List<Block> collectCanopy(Block start, Material logType, Set<Material> targetLeaves, int radius) {
+    private CanopyResult collectCanopy(Block start, Material logType, Set<Material> targetLeaves, int radius) {
         var world = start.getWorld();
-        List<Block> found = new ArrayList<>();
         Set<Long> visited = new HashSet<>();
         Deque<Block> queue = new ArrayDeque<>();
+
+        // Phase 1 — discover every log in the tree.
+        Set<Long> logKeys = new HashSet<>();
+        List<Block> logBlocks = new ArrayList<>();
         queue.add(start);
         visited.add(LogCatalog.packKey(start));
 
-        // BFS walks through both same-family logs and any valid family leaf
-        // (oak's set includes azalea/flowering-azalea so the full azalea ball
-        // is reached). Bleed across two trees whose canopies touch is bounded
-        // at *pop time* by hasNearbySameFamilyLog: a leaf that still has a
-        // surviving same-family log within vanilla's 6-block support radius
-        // won't be popped — matching vanilla's own leaf-decay rule.
-
-        // Vertical extent has to be much larger than horizontal: jungle giants
-        // and spruce megas are ~30 blocks tall but only ~10 wide, and we BFS
-        // from the bottom trunk block. Cap horizontally with `radius` (stops
-        // the BFS leaking into adjacent trees through bridging leaves) and
-        // vertically with `radius * 5` (covers any vanilla tree height).
         int verticalCap = radius * 5;
-        int budget = 16384; // hard ceiling so we never walk forever
-        while (!queue.isEmpty() && budget-- > 0) {
+        int logBudget = 8192;
+        while (!queue.isEmpty() && logBudget-- > 0) {
             Block b = queue.poll();
             int dx = Math.abs(b.getX() - start.getX());
             int dy = Math.abs(b.getY() - start.getY());
             int dz = Math.abs(b.getZ() - start.getZ());
             if (dx > radius || dy > verticalCap || dz > radius) continue;
 
+            if (LogCatalog.isLog(b.getType()) && LogCatalog.sameFamily(b.getType(), logType)) {
+                long key = LogCatalog.packKey(b);
+                if (logKeys.add(key)) {
+                    logBlocks.add(b);
+                }
+                for (int ox = -1; ox <= 1; ox++)
+                    for (int oy = -1; oy <= 1; oy++)
+                        for (int oz = -1; oz <= 1; oz++) {
+                            if (ox == 0 && oy == 0 && oz == 0) continue;
+                            int nx = b.getX() + ox;
+                            int nz = b.getZ() + oz;
+                            if (!world.isChunkLoaded(nx >> 4, nz >> 4)) continue;
+                            Block n = b.getRelative(ox, oy, oz);
+                            if (visited.add(LogCatalog.packKey(n))) queue.add(n);
+                        }
+            }
+        }
+
+        if (logKeys.isEmpty()) return new CanopyResult(Collections.emptyList(), Collections.emptySet());
+
+        // Phase 2 — flood-fill from all collected logs through leaves.
+        // Distance from the nearest log is tracked; leaves beyond
+        // MAX_LEAF_DIST_FROM_LOG are ignored. We do NOT walk through new logs
+        // here — that prevents leaking into an adjacent tree whose trunk is
+        // close to our canopy.
+        visited.clear();
+        queue.clear();
+        Deque<Integer> distQueue = new ArrayDeque<>();
+        for (Block log : logBlocks) {
+            long key = LogCatalog.packKey(log);
+            visited.add(key);
+            queue.add(log);
+            distQueue.add(0);
+        }
+
+        List<Block> found = new ArrayList<>();
+        int leafBudget = 65536;
+        while (!queue.isEmpty() && leafBudget-- > 0) {
+            Block b = queue.poll();
+            int dist = distQueue.poll();
+
             for (int ox = -1; ox <= 1; ox++)
                 for (int oy = -1; oy <= 1; oy++)
                     for (int oz = -1; oz <= 1; oz++) {
                         if (ox == 0 && oy == 0 && oz == 0) continue;
-                        // Skip neighbours in unloaded chunks rather than
-                        // force-loading them on the main thread — a tree at
-                        // the edge of view distance could pull in adjacent
-                        // chunks synchronously otherwise.
                         int nx = b.getX() + ox;
+                        int ny = b.getY() + oy;
                         int nz = b.getZ() + oz;
                         if (!world.isChunkLoaded(nx >> 4, nz >> 4)) continue;
-                        Block n = b.getRelative(ox, oy, oz);
-                        if (!visited.add(LogCatalog.packKey(n))) continue;
+
+                        int nextDist = dist + 1;
+                        if (nextDist > MAX_LEAF_DIST_FROM_LOG) continue;
+
+                        long nKey = LogCatalog.packKey(nx, ny, nz);
+                        if (!visited.add(nKey)) continue;
+
+                        Block n = world.getBlockAt(nx, ny, nz);
                         Material t = n.getType();
                         if (targetLeaves.contains(t)) {
                             if (!tracker.isPlaced(n) && !isPersistent(n)) found.add(n);
-                            queue.add(n); // walk through leaves to reach more leaves
-                        } else if (LogCatalog.isLog(t) && LogCatalog.sameFamily(t, logType)) {
-                            queue.add(n); // intact log — keep searching from it
+                            queue.add(n);
+                            distQueue.add(nextDist);
                         }
+                        // Intentionally do NOT enqueue logs here — all tree
+                        // logs are already in the starting set.
                     }
         }
-        return found;
+
+        return new CanopyResult(found, logKeys);
     }
 
     private boolean isPersistent(Block leaf) {

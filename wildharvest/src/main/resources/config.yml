@@ -34,9 +34,9 @@ treefeller:
   decay-leaves: true
   # Horizontal radius around the trunk axis for leaves to decay.
   # Vertical reach is automatically scaled (radius * 5) so tall trees like
-  # jungle giants and spruce megas reach their canopies. 8 covers all
-  # vanilla tree shapes (big oak, cherry, mangrove, dark oak).
-  leaf-decay-radius: 8
+  # jungle giants and spruce megas reach their canopies. 12 covers all
+  # vanilla tree shapes including the widest canopies (jungle giant, mega spruce, dark oak).
+  leaf-decay-radius: 12
   # Ticks between each leaf pop. 1 = instant cascade, 2 = ~10/sec, etc.
   leaf-decay-ticks-per-leaf: 1
   # Maximum logs broken per tree (capped further by max-chain-size).

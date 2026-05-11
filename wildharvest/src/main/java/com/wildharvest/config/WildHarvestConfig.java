@@ -43,7 +43,7 @@ public final class WildHarvestConfig {
         this.treeFellerEnabled = c.getBoolean("treefeller.enabled", true);
         this.treeFellerRequireAxe = c.getBoolean("treefeller.require-axe", true);
         this.treeFellerDecayLeaves = c.getBoolean("treefeller.decay-leaves", true);
-        this.treeFellerLeafDecayRadius = c.getInt("treefeller.leaf-decay-radius", 8);
+        this.treeFellerLeafDecayRadius = c.getInt("treefeller.leaf-decay-radius", 12);
         this.treeFellerLeafDecayTicks = c.getLong("treefeller.leaf-decay-ticks-per-leaf", 1);
         this.treeFellerMaxLogs = c.getInt("treefeller.max-logs", 256);
         this.treeFellerRequireLeaves = c.getBoolean("treefeller.require-leaves", true);

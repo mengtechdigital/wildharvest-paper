@@ -108,9 +108,10 @@ public final class TreeFellerListener implements Listener {
         // BFS uses logs as connective tissue to reach the canopy and would
         // find nothing once the chain break has turned them all to AIR.
         boolean wantsDecay = config.treeFellerDecayLeaves() && !LogCatalog.isNetherStem(type);
-        List<Block> canopyLeaves = wantsDecay
-                ? leafDecay.collectCanopyLeaves(block, type, config.treeFellerLeafDecayRadius())
-                : Collections.emptyList();
+        LeafDecayScheduler.CanopyResult canopy = null;
+        if (wantsDecay) {
+            canopy = leafDecay.collectCanopyLeaves(block, type, config.treeFellerLeafDecayRadius());
+        }
 
         // Chain-break the rest of the tree with same-family log matching.
         // 26-way (diagonal) connectivity is required for the weird-shaped
@@ -130,11 +131,11 @@ public final class TreeFellerListener implements Listener {
                 true
         );
 
-        if (wantsDecay && !canopyLeaves.isEmpty()) {
+        if (wantsDecay && canopy != null && !canopy.leaves.isEmpty()) {
             leafDecay.scheduleDecay(
                     player,
                     type,
-                    canopyLeaves,
+                    canopy,
                     config.treeFellerLeafDecayTicks()
             );
         }
